@@ -2,16 +2,13 @@ import mongoose from "mongoose";
 
 const postSchema = new mongoose.Schema(
     {
-        title: {
+        content: {
             type: String,
-            required: [true, "Title is required!"],
+            default: ""
         },
-        description: {
+        media: {
             type: String,
-            required: [true, "Description is required!"],
-        },
-        image: {
-            type: String,
+            default: null
         },
         poster: {
             type: mongoose.Schema.Types.ObjectId,
