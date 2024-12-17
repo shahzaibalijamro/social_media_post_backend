@@ -67,6 +67,10 @@ const registerUser = async (req, res) => {
         if (error.name === 'ValidationError') {
             return res.status(400).json({ message: error.message });
         }
+        console.log(error.message);
+        if (error.message === "Password does not meet the required criteria") {
+            return res.status(400).json({ message: "Your password must be at least 8 characters long, contain at least one letter, one number, and one special character (e.g., @$!%*?&)." });
+        }
         res.status(500).json({ message: 'Server error' });
     }
 }

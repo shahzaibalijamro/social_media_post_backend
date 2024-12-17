@@ -25,16 +25,11 @@ const userSchema = new mongoose.Schema({
     },
     password: {
         type: String,
-        required: [true, 'Password is required!'],
-        minlength: [8, 'Password should be at least 8 characters!']
+        required: [true, 'Password is required!']
     },
     profilePicture: {
         type: String,
         required: [true, "Profile picture is required!"]
-    },
-    refreshToken: {
-        type: String,
-        required: [true, 'Refresh token is required!']
     },
     posts: [{
             type: mongoose.Schema.Types.ObjectId,
