@@ -72,10 +72,16 @@ const likePost = async (req,res) => {
         if (!doesUserExist) {
             return res.status(404).json({ message: "User doesn't exist!" });
         }
+        const session = await mongoose.startSession();
+        session.startTransaction()
         try {
-            const like = await Post.findByIdAndUpdate(post, {$push: {likes: {post,liker}}})
-            const updateUserLikedPosts = await User.findByIdAndUpdate(liker, {$push: {likedPosts: {post,liker}}})
+            const like = await Post.findByIdAndUpdate(post, {$push: {likes: {post,liker}}},{ session })
+            const updateUserLikedPosts = await User.findByIdAndUpdate(liker, {$push: {likedPosts: {post,liker}}},{ session })
+            session.commitTransaction();
+            session.endSession()
         } catch (error) {
+            session.abortTransaction()
+            session.endSession()
             return res.status(400).json({
                 message: error
             })
