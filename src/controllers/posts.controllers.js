@@ -55,14 +55,34 @@ const allPosts = async (req,res) => {
 const likePost = async (req,res) => {
     try {
         const {post,liker} = req.body;
-        if (!post || !mongoose.Types.ObjectId.isValid(post)) return res.status(401).json({
-            message: "Post id is required to like the post"
+        // Validate input
+        if (!post || !mongoose.Types.ObjectId.isValid(post)) {
+            return res.status(400).json({ message: "Post ID is required and must be valid." });
+        }
+        if (!liker || !mongoose.Types.ObjectId.isValid(liker)) {
+            return res.status(400).json({ message: "Liker ID is required and must be valid." });
+        }
+        // Check if post exists
+        const doesPostExist = await Post.findById(post);
+        if (!doesPostExist) {
+            return res.status(404).json({ message: "Post doesn't exist!" });
+        }
+        // Check if user exists
+        const doesUserExist = await User.findById(liker);
+        if (!doesUserExist) {
+            return res.status(404).json({ message: "User doesn't exist!" });
+        }
+        try {
+            const like = await Post.findByIdAndUpdate(post, {$push: {likes: {post,liker}}})
+            const updateUserLikedPosts = await User.findByIdAndUpdate(liker, {$push: {likedPosts: {post,liker}}})
+        } catch (error) {
+            return res.status(400).json({
+                message: error
+            })
+        }
+        res.status(200).json({
+            message: "Post liked!"
         })
-        if (!liker || !mongoose.Types.ObjectId.isValid(liker)) return res.status(401).json({
-            message: "Liker id is required to like the post"
-        })
-        const allPosts = await Post.find({})
-        res.json(allPosts)
     } catch (error) {
         res.json(error)
     }

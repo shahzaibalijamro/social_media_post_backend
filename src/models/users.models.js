@@ -31,20 +31,25 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, "Profile picture is required!"]
     },
+    likedPosts: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Like"
+    },
+    ],
     posts: [{
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Post"
-        },
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Post"
+    },
     ],
     sharedPosts: [{
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Share"
-        },
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Share"
+    },
     ],
     reposts: [{
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Repost"
-        },
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Repost"
+    },
     ]
     // sharedPosts: 
 }, { timestamps: true })
