@@ -20,7 +20,7 @@ const addPost = async (req, res) => {
         if (!user) return res.status(400).json({
             message: "User not found!"
         })
-        const media = null;
+        let media = null;
         if (mediaPath) {
             media = await uploadImageToCloudinary(mediaPath)
         }
@@ -43,7 +43,6 @@ const addPost = async (req, res) => {
     }
 }
 
-
 const allPosts = async (req,res) => {
     try {
         const allPosts = await Post.find({})
@@ -53,4 +52,19 @@ const allPosts = async (req,res) => {
     }
 }
 
+const likePost = async (req,res) => {
+    try {
+        const {post,liker} = req.body;
+        if (!post || !mongoose.Types.ObjectId.isValid(post)) return res.status(401).json({
+            message: "Post id is required to like the post"
+        })
+        if (!liker || !mongoose.Types.ObjectId.isValid(liker)) return res.status(401).json({
+            message: "Liker id is required to like the post"
+        })
+        const allPosts = await Post.find({})
+        res.json(allPosts)
+    } catch (error) {
+        res.json(error)
+    }
+}
 export { addPost, allPosts}
