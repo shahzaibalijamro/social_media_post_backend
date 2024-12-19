@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import User from "../models/users.models.js";
 import Post from "../models/posts.models.js";
 import { uploadImageToCloudinary } from "../utils/cloudinary.utils.js";
+import Like from "../models/likes.models.js";
 
 const addPost = async (req, res) => {
     try {
@@ -75,22 +76,22 @@ const likePost = async (req,res) => {
         const session = await mongoose.startSession();
         session.startTransaction()
         try {
-            const like = await Post.findByIdAndUpdate(post, {$push: {likes: {post,liker}}},{ session })
-            const updateUserLikedPosts = await User.findByIdAndUpdate(liker, {$push: {likedPosts: {post,liker}}},{ session })
+            const like = await Like.create([{ post, liker }], { session });
+            
+            // const saveLike = await Post.findByIdAndUpdate(post, {$push: {likes: like[0]._id}},{ session })
+            // const updateUserLikedPosts = await User.findByIdAndUpdate(liker, {$push: {likedPosts: {post,liker}}},{ session })
             session.commitTransaction();
-            session.endSession()
+            res.status(200).json({
+                message: "Post liked!"
+            })
         } catch (error) {
             session.abortTransaction()
-            session.endSession()
-            return res.status(400).json({
-                message: error
-            })
+            return res.status(400).json(error)
+        } finally {
+            session.endSession();
         }
-        res.status(200).json({
-            message: "Post liked!"
-        })
     } catch (error) {
         res.json(error)
     }
 }
-export { addPost, allPosts}
+export { addPost, allPosts , likePost}
