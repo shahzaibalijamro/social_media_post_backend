@@ -86,7 +86,7 @@ const likePost = async (req, res) => {
                 })
             }
             //commit transaction if successfully unliked
-            session.commitTransaction()
+            await session.commitTransaction()
             return res.status(200).json({
                 message: "Unliked the post!",
                 removeLikeFromPost,
