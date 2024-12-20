@@ -7,6 +7,7 @@ import Comment from "../models/comments.models.js";
 
 
 const addPost = async (req, res) => {
+    let session;
     try {
         const { content, poster } = req.body;
         const mediaPath = req.file ? req.file.path : null;
@@ -27,23 +28,35 @@ const addPost = async (req, res) => {
         if (mediaPath) {
             media = await uploadImageToCloudinary(mediaPath)
         }
+        session = await mongoose.startSession();
+        session.startTransaction();
         const newPost = await Post.create({
             content: content || "",
             poster,
             media
-        })
+        },{session})
         const updateUser = await User.findByIdAndUpdate(poster, {
             $push: { posts: newPost._id }
-        })
+        },{session})
+        if (!newPost || !updateUser) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                message: "An error occurred while creating the Post!"
+            })
+        }
+        await session.commitTransaction();
         res.status(201).json({
             message: "Post uploaded!",
             post: newPost
         })
     } catch (error) {
+        await session.abortTransaction();
         res.status(500).json({
             message: "An error occurred while adding the blog",
             error: error.message,
         })
+    }{
+        await session.endSession();
     }
 }
 
@@ -85,9 +98,7 @@ const allPosts = async (req, res) => {
 
 //using transactions
 const likePost = async (req, res) => {
-    const session = await mongoose.startSession();
-    //start transaction
-    session.startTransaction()
+    let session;
     try {
         const { post, liker } = req.body;
         // Validate input
@@ -99,6 +110,9 @@ const likePost = async (req, res) => {
         }
         // Check if the post is already liked by the user
         const checkIfLikedAlready = await Like.findOne({ post,liker });
+        session = await mongoose.startSession();
+        //start transaction
+        session.startTransaction()
         //if the post has already been liked
         if (checkIfLikedAlready) {
             // Remove the like if already liked
