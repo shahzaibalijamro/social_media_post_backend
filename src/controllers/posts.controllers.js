@@ -135,6 +135,7 @@ const likePost = async (req, res) => {
 }
 
 const addComment = async (req, res) => {
+    let session;
     try {
         const { post, commenter, comment } = req.body;
         if (!post || !mongoose.Types.ObjectId.isValid(post)) {
@@ -154,7 +155,7 @@ const addComment = async (req, res) => {
         if (!doesUserExist) {
             return res.status(404).json({ message: "User doesn't exist!" });
         }
-        const session = await mongoose.startSession();
+        session = await mongoose.startSession();
         session.startTransaction();
         const createComment = await Comment.create([{ post, comment, commenter }],{session});
         const updatePostComments = await Post.findByIdAndUpdate(post,{$push:{comments: createComment[0]._id}},{session});
@@ -170,7 +171,7 @@ const addComment = async (req, res) => {
         await session.abortTransaction();
         res.status(400).json({ message: error.message || "An error occurred" });
     }finally{
-        session.endSession()
+        await session.endSession()
     }
 }
 //custom error handling
