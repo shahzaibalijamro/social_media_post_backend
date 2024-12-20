@@ -47,6 +47,33 @@ const addPost = async (req, res) => {
     }
 }
 
+//delete a post
+const deletePost = async (req, res) => {
+    const {postId} = req.body;
+    try {
+        if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+            return res.status(400).json({
+                message: "Post Id is required and must be valid"
+            })
+        }
+        const post = await Post.findByIdAndDelete(postId);
+        if (!post) {
+            return res.status(404).json({
+                message: "Post doesn't exist"
+            })
+        }
+        res.status(200).json({
+            message: "Post deleted!"
+        })
+    } catch (error) {
+        res.status(500).json({
+            message: error.message || "Something went wrong while deleting the post!"
+        })
+    }
+}
+
+
+//all posts
 const allPosts = async (req, res) => {
     try {
         const allPosts = await Post.find({})
@@ -134,46 +161,6 @@ const likePost = async (req, res) => {
     }
 }
 
-const addComment = async (req, res) => {
-    let session;
-    try {
-        const { post, commenter, comment } = req.body;
-        if (!post || !mongoose.Types.ObjectId.isValid(post)) {
-            return res.status(400).json({ message: "Post ID is required and must be valid." });
-        }
-        if (!commenter || !mongoose.Types.ObjectId.isValid(commenter)) {
-            return res.status(400).json({ message: "Commenter ID is required and must be valid." });
-        }
-        if (!comment) {
-            return res.status(400).json({ message: "Comment content is required." });
-        }
-        const doesPostExist = await Post.findById(post);
-        if (!doesPostExist) {
-            return res.status(404).json({ message: "Post doesn't exist!" });
-        }
-        const doesUserExist = await User.findById(commenter);
-        if (!doesUserExist) {
-            return res.status(404).json({ message: "User doesn't exist!" });
-        }
-        session = await mongoose.startSession();
-        session.startTransaction();
-        const createComment = await Comment.create([{ post, comment, commenter }],{session});
-        const updatePostComments = await Post.findByIdAndUpdate(post,{$push:{comments: createComment[0]._id}},{session});
-        if (!createComment || !updatePostComments) {
-            await session.abortTransaction();
-            return res.status(400).json({ message: "An error occurred while adding the comment." });
-        }
-        await session.commitTransaction();
-        res.status(201).json({
-            message: "Comment added successfully",createComment
-        });
-    } catch (error) {
-        await session.abortTransaction();
-        res.status(400).json({ message: error.message || "An error occurred" });
-    }finally{
-        await session.endSession()
-    }
-}
 //custom error handling
 // const likePost = async (req, res) => {
 //     try {
@@ -238,4 +225,47 @@ const addComment = async (req, res) => {
 // } catch (error) {
 //     res.status(400).json(error)
 // }}
-export { addPost, allPosts, likePost,addComment }
+
+
+//add comment
+const addComment = async (req, res) => {
+    let session;
+    try {
+        const { post, commenter, comment } = req.body;
+        if (!post || !mongoose.Types.ObjectId.isValid(post)) {
+            return res.status(400).json({ message: "Post ID is required and must be valid." });
+        }
+        if (!commenter || !mongoose.Types.ObjectId.isValid(commenter)) {
+            return res.status(400).json({ message: "Commenter ID is required and must be valid." });
+        }
+        if (!comment) {
+            return res.status(400).json({ message: "Comment content is required." });
+        }
+        const doesPostExist = await Post.findById(post);
+        if (!doesPostExist) {
+            return res.status(404).json({ message: "Post doesn't exist!" });
+        }
+        const doesUserExist = await User.findById(commenter);
+        if (!doesUserExist) {
+            return res.status(404).json({ message: "User doesn't exist!" });
+        }
+        session = await mongoose.startSession();
+        session.startTransaction();
+        const createComment = await Comment.create([{ post, comment, commenter }],{session});
+        const updatePostComments = await Post.findByIdAndUpdate(post,{$push:{comments: createComment[0]._id}},{session});
+        if (!createComment || !updatePostComments) {
+            await session.abortTransaction();
+            return res.status(400).json({ message: "An error occurred while adding the comment." });
+        }
+        await session.commitTransaction();
+        res.status(201).json({
+            message: "Comment added successfully",createComment
+        });
+    } catch (error) {
+        await session.abortTransaction();
+        res.status(400).json({ message: error.message || "An error occurred" });
+    }finally{
+        await session.endSession()
+    }
+}
+export { addPost, allPosts, likePost,addComment,deletePost }

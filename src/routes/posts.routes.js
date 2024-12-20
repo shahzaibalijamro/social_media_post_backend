@@ -1,5 +1,5 @@
 import express from "express";
-import { addComment, addPost, allPosts, likePost } from "../controllers/posts.controllers.js";
+import { addComment, addPost, allPosts, deletePost, likePost } from "../controllers/posts.controllers.js";
 import { upload } from "../middlewares/multer.middelware.js";
 
 const postRouter = express.Router();
@@ -15,5 +15,8 @@ postRouter.post("/likepost", likePost)
 
 //comment on a post
 postRouter.post("/comment", addComment)
+
+//Delete post
+postRouter.post("/deletepost", deletePost)
 
 export { postRouter }
