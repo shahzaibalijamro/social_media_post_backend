@@ -51,9 +51,9 @@ const addPost = async (req, res) => {
         })
     } catch (error) {
         await session.abortTransaction();
+        console.log(error.message || error);
         res.status(500).json({
-            message: "An error occurred while adding the blog",
-            error: error.message,
+            message: "An error occurred while adding the blog"
         })
     }{
         await session.endSession();
@@ -79,8 +79,9 @@ const deletePost = async (req, res) => {
             message: "Post deleted!"
         })
     } catch (error) {
+        console.log(error.message || error);
         res.status(500).json({
-            message: error.message || "Something went wrong while deleting the post!"
+            message: "Something went wrong while deleting the post!"
         })
     }
 }
@@ -92,7 +93,10 @@ const allPosts = async (req, res) => {
         const allPosts = await Post.find({})
         res.json(allPosts)
     } catch (error) {
-        res.json(error)
+        console.log(error.message || error);
+        res.status(500).json({
+            message : "Something went wrong!"
+        })
     }
 }
 
@@ -167,8 +171,8 @@ const likePost = async (req, res) => {
     } catch (error) {
         //abort the transaction if there's an error
         await session.abortTransaction();
-        console.error(error);
-        res.status(400).json({ message: error.message || "An error occurred" });
+        console.log(error.message || error);
+        res.status(500).json({ message: "An error occurred" });
     }finally{
         //end the session regardless of success or failure
         await session.endSession()
@@ -277,9 +281,36 @@ const addComment = async (req, res) => {
         });
     } catch (error) {
         await session.abortTransaction();
-        res.status(400).json({ message: error.message || "An error occurred" });
+        console.log(error.message || error);
+        res.status(500).json({ message: "An error occurred" });
     }finally{
         await session.endSession()
     }
 }
+
+const deleteComment = async (req,res) => {
+    const {commentId} = req.body;
+    try {
+        if (!commentId || !mongoose.Types.ObjectId.isValid(commentId)) {
+            return res.status(400).json({
+                message : "Comment Id is required and must be valid!"
+            })
+        }
+        const doesCommentExist = await Comment.findByIdAndDelete(commentId);
+        if (!doesCommentExist) {
+            return res.status(404).json({
+                message: "Comment does not exist!"
+            })
+        }
+        res.status(200).json({
+            message : "Comment deleted successfully!"
+        })
+    } catch (error) {
+        console.log(error.message || error);
+        res.status(500).json({
+            message: "Something went wrong!"
+        })
+    }
+}
+
 export { addPost, allPosts, likePost,addComment,deletePost }
