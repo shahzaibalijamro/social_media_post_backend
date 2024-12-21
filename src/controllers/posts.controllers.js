@@ -332,7 +332,7 @@ const sharePost = async (req,res) => {
         if (!doesPostExist) return res.status(404).json({
             message: "Post does not exist!"
         })
-        const doesUserExist = await Post.findById(userId);
+        const doesUserExist = await User.findById(userId);
         if (!doesUserExist) return res.status(404).json({
             message: "User does not exist!"
         })
