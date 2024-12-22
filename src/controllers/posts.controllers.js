@@ -316,31 +316,54 @@ const deleteComment = async (req,res) => {
 
 const sharePost = async (req,res) => {
     const {postId,userId} = req.body;
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+        return res.status(400).json({
+            message: "Post Id is required and must be valid!"
+        })
+    }
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(400).json({
+            message: "User Id is required and must be valid!"
+        })
+    }
     let session;
     try {
-        if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
-            return res.status(400).json({
-                message: "Post Id is required and must be valid!"
+        const checkIfSharedAlready = await Share.findOne({post: postId, sharer: userId})
+        session = await mongoose.startSession();
+        session.startTransaction();
+        if (checkIfSharedAlready) {
+            //unshare it
+            const [updateUsersSharedPosts,updatePostsSharesCount,deleteShareDocument] = await Promise.all([
+                User.findByIdAndUpdate(userId,{$pull: {sharedPosts: checkIfSharedAlready._id}},{session}),
+                Post.findByIdAndUpdate(postId,{$pull: {shares: checkIfSharedAlready._id}},{session}),
+                Share.findByIdAndDelete(checkIfSharedAlready._id,{session})
+            ]);
+            if (!updateUsersSharedPosts || !updatePostsSharesCount || !deleteShareDocument) {
+                await session.abortTransaction();
+                return res.status(500).json({
+                    message: "Could not delete shared post!"
+                })
+            }
+            await session.commitTransaction()
+            return res.status(200).json({
+                message: "Deleted the shared Post!"
             })
         }
-        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({
-                message: "User Id is required and must be valid!"
-            })
-        }
-        const doesPostExist = await Post.findById(postId);
+        const [doesPostExist,doesUserExist] = await Promise.all([
+            Post.findById(postId),
+            User.findById(userId)
+        ])
         if (!doesPostExist) return res.status(404).json({
             message: "Post does not exist!"
         })
-        const doesUserExist = await User.findById(userId);
         if (!doesUserExist) return res.status(404).json({
             message: "User does not exist!"
         })
-        session = await mongoose.startSession();
-        session.startTransaction();
         const createShare = await Share.create([{post: postId, sharer: userId}],{session});
-        const updateUsersSharedPosts = await User.findByIdAndUpdate(userId,{$push: {sharedPosts: createShare[0]._id}},{session});
-        const updatePostsSharesCount = await Post.findByIdAndUpdate(postId,{$push: {shares: createShare[0]._id}},{session});
+        const [updateUsersSharedPosts,updatePostsSharesCount] = await Promise.all([
+            User.findByIdAndUpdate(userId,{$push: {sharedPosts: createShare[0]._id}},{session}),
+            Post.findByIdAndUpdate(postId,{$push: {shares: createShare[0]._id}},{session})
+        ])
         if (!createShare || !updateUsersSharedPosts || !updatePostsSharesCount) {
             await session.abortTransaction()
             return res.status(400).json({
@@ -362,4 +385,18 @@ const sharePost = async (req,res) => {
     }
 }
 
-export { addPost, allPosts, likePost,addComment,deletePost }
+const repost = async (req,res) => {
+    const {postId,userId} = req.body;
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+        return res.status(400).json({
+            message: "Post Id is required and must be valid!"
+        })
+    }
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(400).json({
+            message: "User Id is required and must be valid!"
+        })
+    }
+}
+
+export { addPost,deletePost, allPosts, likePost,addComment,deleteComment,sharePost }
