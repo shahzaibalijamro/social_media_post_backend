@@ -5,7 +5,7 @@ import Post from "../models/posts.models.js";
 import Like from "../models/likes.models.js";
 import Comment from "../models/comments.models.js";
 import Share from "../models/shares.models.js"
-
+import Repost from "../models/reposts.models.js"
 
 const addPost = async (req, res) => {
     let session;
@@ -386,7 +386,7 @@ const sharePost = async (req,res) => {
 }
 
 const repost = async (req,res) => {
-    const {postId,userId} = req.body;
+    const {postId,userId,editedVal} = req.body;
     if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
         return res.status(400).json({
             message: "Post Id is required and must be valid!"
@@ -397,6 +397,78 @@ const repost = async (req,res) => {
             message: "User Id is required and must be valid!"
         })
     }
+    let session;
+    try {
+        const isAlreadyReposted = await Repost.find({post: postId,reposter: userId});
+        session = await mongoose.startSession();
+        session.startTransaction();
+        if (isAlreadyReposted) {
+            const [updatePostsRepostCount,updateUsersReposts,deleteRepostDocument] = await Promise.all([
+                Post.findByIdAndUpdate(postId,{$pull: {reposts: isAlreadyReposted._id}},{session}),
+                User.findByIdAndUpdate(userId,{$pull: {reposts: isAlreadyReposted._id}},{session}),
+                Repost.findByIdAndDelete(isAlreadyReposted._id,{session})
+            ])
+            if (!updatePostsRepostCount || !updateUsersReposts || !deleteRepostDocument) {
+                await session.abortTransaction()
+                return res.status(400).json(
+                    {
+                        message: "Could not delete Repost!"
+                    }
+                )
+            }
+            await session.commitTransaction();
+            return res.status(200).json({
+                message: "Successfully deleted the repost!"
+            })
+        }
+        const post = await Post.findById(postId);
+        if (!post) {
+            return res.status(404).json({
+                message: "Post does not exist!"
+            })
+        }
+        const reposter = await Post.findById(userId);
+        if (!reposter) {
+            return res.status(404).json({
+                message: "User does not exist!"
+            })
+        }
+        const createRepost = await Repost.create([{post: postId,reposter: userId,editedVal: editedVal || ""}],{session});
+        const [updatePostsRepostCount,updateUsersReposts] = await Promise.all([
+            Post.findByIdAndUpdate(postId,{$push: {reposts: createRepost[0]._id}},{session}),
+            User.findByIdAndUpdate(userId,{$push: {reposts: createRepost[0]._id}},{session})
+        ])
+        if (!updatePostsRepostCount || !updateUsersReposts) {
+            await session.abortTransaction()
+            return res.status(400).json({
+                message: "An error occurred while reposting!"
+            })
+        }
+        await session.commitTransaction();
+        res.status(200).json({
+            message: "Successfully reposted!"
+        })
+    } catch (error) {
+        await session.endSession()
+        console.log(error.message || error);
+        return res.status(500).json({
+            message: "Something went wrong"
+        })
+    }
 }
 
-export { addPost,deletePost, allPosts, likePost,addComment,deleteComment,sharePost }
+const replyToAComment = async (req,res) => {
+    const {replyMessage,commentId} = req.body;
+    if (!replyMessage) {
+        return res.status(401).json({
+            message: "Reply message is required!"
+        })
+    }
+    if (!commentId || !mongoose.Types.ObjectId.isValid(commentId)) {
+        return res.status(401).json({
+            message: "Comment Id is required and must be valid!"
+        })
+    }
+}
+
+export { addPost,deletePost, allPosts, likePost,addComment,deleteComment,sharePost,repost }

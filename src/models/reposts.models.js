@@ -11,6 +11,10 @@ const repostSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
             required: [true, "Reposter is required!"],
+        },
+        editedVal: {
+            type: String,
+            default: ""
         }
     },
     {
