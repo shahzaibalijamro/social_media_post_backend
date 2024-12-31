@@ -4,14 +4,15 @@ import User from "../models/users.models.js";
 import Post from "../models/posts.models.js";
 import Like from "../models/likes.models.js";
 import Comment from "../models/comments.models.js";
-import Share from "../models/shares.models.js"
-import Repost from "../models/reposts.models.js"
-import Reply from "../models/replies.models.js"
+import Share from "../models/shares.models.js";
+import Repost from "../models/reposts.models.js";
+import Reply from "../models/replies.models.js";
+
 const addPost = async (req, res) => {
+    const { content, poster } = req.body;
+    const mediaPath = req.file ? req.file.path : null;
     let session;
     try {
-        const { content, poster } = req.body;
-        const mediaPath = req.file ? req.file.path : null;
         if (!content && !mediaPath) {
             return res.status(400).json({ message: "Post must contain either text or media!" });
         }
@@ -51,13 +52,17 @@ const addPost = async (req, res) => {
             post: newPost
         })
     } catch (error) {
-        await session.abortTransaction();
+        if (session) {
+            await session.abortTransaction();
+        }
         console.log(error.message || error);
         res.status(500).json({
             message: "An error occurred while adding the blog"
         })
-    }{
-        await session.endSession();
+    }finally{
+        if (session) {
+            await session.endSession();
+        }
     }
 }
 
@@ -101,18 +106,68 @@ const allPosts = async (req, res) => {
     }
 }
 
+const editPost = async (req, res) => {
+    const { content, postId,userId } = req.body;
+    const mediaPath = req.file ? req.file.path : null;
+    try {
+        if (!content && !mediaPath) {
+            return res.status(400).json({ message: "Post must contain either text or media!" });
+        }
+        if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+            return res.status(400).json({
+                message: "Post Id is required and must be valid!"
+            })
+        }
+        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({
+                message: "User Id is required and must be valid!"
+            })
+        }
+        const post = await Post.findById(postId);
+        if (!post) {
+            return res.status(404).json({
+                message: "Post not found"
+            })
+        }
+        if (post.poster.toString() !== userId.toString()) {
+            return res.status(401).json({
+                message : "You are not authorized to edit this post!"
+            })
+        }
+        let media = post.media;
+        if (mediaPath) {
+            try {
+                media = await uploadImageToCloudinary(mediaPath);
+            } catch (error) {
+                return res.status(500).json({ message: "Failed to upload media!" });
+            }
+        }
+        const updatePost = await Post.findByIdAndUpdate(postId,{
+            content: content || post.content,
+            media,
+        },{new:true})
+        if (!updatePost) {
+            return res.status(404).json({
+                message: "Could not edit post!"
+            });
+        }
+        return res.status(200).json({
+            message: "Post updated!",
+            updatePost
+        })
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({
+            message: "Something went wrong while editing the post!"
+        })
+    }
+}
+
 //using transactions
-const likePost = async (req, res) => {
+const likeOrUnlikePost = async (req, res) => {
+    const { post, liker,likeId } = req.body;
     let session;
     try {
-        const { post, liker,likeId } = req.body;
-        // Validate input
-        if (!post || !mongoose.Types.ObjectId.isValid(post)) {
-            return res.status(400).json({ message: "Post ID is required and must be valid." });
-        }
-        if (!liker || !mongoose.Types.ObjectId.isValid(liker)) {
-            return res.status(400).json({ message: "Liker ID is required and must be valid." });
-        }
         session = await mongoose.startSession();
         session.startTransaction()
         if (likeId && mongoose.Types.ObjectId.isValid(likeId)) {
@@ -135,6 +190,13 @@ const likePost = async (req, res) => {
                 removeLikedPostFromUser,
                 deleteLikedDocument
             })
+        }
+        // Validate input
+        if (!post || !mongoose.Types.ObjectId.isValid(post)) {
+            return res.status(400).json({ message: "Post ID is required and must be valid." });
+        }
+        if (!liker || !mongoose.Types.ObjectId.isValid(liker)) {
+            return res.status(400).json({ message: "Liker ID is required and must be valid." });
         }
         // Check if post exists
         const doesPostExist = await Post.findById(post);
@@ -177,7 +239,7 @@ const likePost = async (req, res) => {
 }
 
 //custom error handling
-// const likePost = async (req, res) => {
+// const likeOrUnlikePost = async (req, res) => {
 //     try {
 //         const { post, liker } = req.body;
 //         // Validate input
@@ -277,11 +339,15 @@ const addComment = async (req, res) => {
             message: "Comment added successfully",createComment
         });
     } catch (error) {
-        await session.abortTransaction();
+        if(session){
+            await session.abortTransaction();
+        }
         console.log(error.message || error);
         res.status(500).json({ message: "An error occurred" });
     }finally{
-        await session.endSession()
+        if(session){
+            await session.endSession()
+        }
     }
 }
 
@@ -371,13 +437,17 @@ const sharePost = async (req,res) => {
             message: "Shared post successfully!"
         })
     } catch (error) {
-        await session.abortTransaction()
+        if (session) {
+            await session.abortTransaction()
+        }
         console.log(error.message || error);
         res.status(500).json({
             message: "Something went wrong!"
         })
     }finally{
-        await session.endSession()
+        if (session) {
+            await session.endSession()
+        }
     }
 }
 
@@ -445,11 +515,17 @@ const repost = async (req,res) => {
             message: "Successfully reposted!"
         })
     } catch (error) {
-        await session.endSession()
+        if (session) {
+            await session.abortTransaction();
+        }
         console.log(error.message || error);
         return res.status(500).json({
             message: "Something went wrong"
         })
+    }finally{
+        if (session) {
+            await session.endSession();
+        }
     }
 }
 
@@ -505,14 +581,52 @@ const replyToAComment = async (req, res) => {
     }
 };
 
-export { addPost,deletePost, allPosts, likePost,addComment,deleteComment,sharePost,repost,replyToAComment }
+const deleteReply = async (req,res) =>{
+    const {replyId,userId} = req.body;
+    let session;
+    try {
+        if (!replyId || !mongoose.Types.ObjectId.isValid(replyId)) {
+            return res.status(400).json({
+                message: "Reply Id is required and must be valid!"
+            })
+        }
+        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({
+                message: "User Id is required and must be valid!"
+            })
+        }
+        session = await mongoose.startSession();
+        session.startTransaction();
+        const deleteReply = await Reply.findByIdAndDelete(replyId,{session});
+        if (deleteReply.replier.toString() !== userId.toString()) {
+            await session.abortTransaction();
+            return res.status(401).json({
+                message: "You are not authorized to delete this post!"
+            })
+        }
+        await session.commitTransaction();
+        return res.status(200).json({
+            message: "Reply deleted!"
+        })
+    } catch (error) {
+        console.log(error);
+        if (session) await session.abortTransaction()
+        return res.status(500).json({
+            message: "Something went wrong while deleting the reply!"
+        })
+    }finally{
+        if (session) await session.endSession()
+    }
+}
+
+export { addPost,deletePost, allPosts, likeOrUnlikePost,addComment,deleteComment,sharePost,repost,replyToAComment,editPost }
 
 // // // // // delete reply,
 // // // // // delete user,
 // // // //    edit comment,
 // // // // // all shared posts,
-// // // // // edit post,
 // // // // // all reposts,
+// edit post, done
 // add comment, done
 // delete comment, done
 // add reply, done
