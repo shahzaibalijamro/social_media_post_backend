@@ -6,7 +6,7 @@ import Like from "../models/likes.models.js";
 import Comment from "../models/comments.models.js";
 import Share from "../models/shares.models.js"
 import Repost from "../models/reposts.models.js"
-
+import Reply from "../models/replies.models.js"
 const addPost = async (req, res) => {
     let session;
     try {
@@ -105,7 +105,7 @@ const allPosts = async (req, res) => {
 const likePost = async (req, res) => {
     let session;
     try {
-        const { post, liker } = req.body;
+        const { post, liker,likeId } = req.body;
         // Validate input
         if (!post || !mongoose.Types.ObjectId.isValid(post)) {
             return res.status(400).json({ message: "Post ID is required and must be valid." });
@@ -113,20 +113,15 @@ const likePost = async (req, res) => {
         if (!liker || !mongoose.Types.ObjectId.isValid(liker)) {
             return res.status(400).json({ message: "Liker ID is required and must be valid." });
         }
-        // Check if the post is already liked by the user
-        const checkIfLikedAlready = await Like.findOne({ post,liker });
         session = await mongoose.startSession();
-        //start transaction
         session.startTransaction()
-        //if the post has already been liked
-        if (checkIfLikedAlready) {
-            // Remove the like if already liked
-            const removeLikeFromPost = await Post.findByIdAndUpdate(post, { $pull: { likes: checkIfLikedAlready._id } }, { session });
-            const removeLikedPostFromUser = await User.findByIdAndUpdate(liker, { $pull: { likedPosts: checkIfLikedAlready._id } }, { session });
-            const deleteLikedDocument = await Like.findByIdAndDelete(checkIfLikedAlready._id, { session });
-            // Check for errors before committing the transaction
-            if (!removeLikeFromPost || !removeLikedPostFromUser || !deleteLikedDocument){
-                // Abort transaction if there's an error
+        if (likeId && mongoose.Types.ObjectId.isValid(likeId)) {
+            const [removeLikeFromPost,removeLikedPostFromUser,deleteLikedDocument] = await Promise.all([
+                Post.findByIdAndUpdate(post, { $pull: { likes: likeId } }, { session }),
+                User.findByIdAndUpdate(liker, { $pull: { likedPosts: likeId } }, { session }),
+                Like.findByIdAndDelete(likeId, { session })
+            ])
+            if (!deleteLikedDocument){
                 await session.abortTransaction();
                 return res.status(400).json({
                     message: "An error occurred while Unliking the post!"
@@ -154,11 +149,12 @@ const likePost = async (req, res) => {
         //create a like document
         const like = await Like.create([{ post, liker }], { session })
         //update post likes
-        const updatePostLikes = await Post.findByIdAndUpdate(post, { $push: { likes: like[0]._id } }, { new: true }, { session })
-        //update User's liked posts
-        const updateUserLikedPosts = await User.findByIdAndUpdate(liker, { $push: { likedPosts: like[0]._id } }, { session });
+        const [updatePostLikes,updateUserLikedPosts] = await Promise.all([
+            Post.findByIdAndUpdate(post, { $push: { likes: like[0]._id } }, { new: true }, { session }),
+            User.findByIdAndUpdate(liker, { $push: { likedPosts: like[0]._id } }, { session })
+        ])
         //Check if all operations are successful
-        if (!like || !updatePostLikes || !updateUserLikedPosts) {
+        if (!like || !updatePostLikes || updateUserLikedPosts) {
             //Abort the transaction incase of an error
             await session.abortTransaction()
             return res.status(400).json({ message: "Error occurred while processing your like request." });
@@ -171,12 +167,12 @@ const likePost = async (req, res) => {
         });
     } catch (error) {
         //abort the transaction if there's an error
-        await session.abortTransaction();
+        if (session) await session.abortTransaction();
         console.log(error.message || error);
         res.status(500).json({ message: "An error occurred" });
     }finally{
         //end the session regardless of success or failure
-        await session.endSession()
+        if (session) await session.endSession()
     }
 }
 
@@ -457,18 +453,79 @@ const repost = async (req,res) => {
     }
 }
 
-const replyToAComment = async (req,res) => {
-    const {replyMessage,commentId} = req.body;
-    if (!replyMessage) {
-        return res.status(401).json({
-            message: "Reply message is required!"
-        })
+const replyToAComment = async (req, res) => {
+    const { reply, comment, replier } = req.body;
+    if (!reply) {
+        return res.status(400).json({
+            message: "Reply message must not be empty!",
+        });
     }
-    if (!commentId || !mongoose.Types.ObjectId.isValid(commentId)) {
-        return res.status(401).json({
-            message: "Comment Id is required and must be valid!"
-        })
+    if (!comment || !mongoose.Types.ObjectId.isValid(comment)) {
+        return res.status(400).json({
+            message: "Comment ID is required and must be valid!",
+        });
     }
-}
+    if (!replier || !mongoose.Types.ObjectId.isValid(replier)) {
+        return res.status(400).json({
+            message: "Replier's user ID is required and must be valid!",
+        });
+    }
+    let session;
+    try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+        const createdReply = await Reply.create(
+            [{ comment, reply, replier }],
+            { session }
+        );
+        const updatedComment = await Comment.findByIdAndUpdate(
+            comment,
+            { $push: { replies: createdReply[0]._id } },
+            { session }
+        );
+        if (!createdReply || !updatedComment) {
+            await session.abortTransaction();
+            return res.status(500).json({
+                message: "An error occurred while adding the reply!",
+            });
+        }
+        await session.commitTransaction();
+        return res.status(201).json({
+            message: "Reply added successfully.",
+            reply: createdReply[0],
+        });
+    } catch (error) {
+        if (session) await session.abortTransaction();
+        console.error("Error in replyToAComment:", error);
+        return res.status(500).json({
+            message: "Could not post the reply. Please try again later.",
+        });
+    } finally {
+        if (session) await session.endSession();
+    }
+};
 
-export { addPost,deletePost, allPosts, likePost,addComment,deleteComment,sharePost,repost }
+export { addPost,deletePost, allPosts, likePost,addComment,deleteComment,sharePost,repost,replyToAComment }
+
+// // // // // delete reply,
+// // // // // delete user,
+// // // //    edit comment,
+// // // // // all shared posts,
+// // // // // edit post,
+// // // // // all reposts,
+// add comment, done
+// delete comment, done
+// add reply, done
+// add like, done
+// remove like, done
+// add post, done
+// all post, done
+// delete post, done
+// add repost, done
+// delete repost, done
+// share post, done
+// unshare post, done
+// register user, done
+// login user, done
+// logout user, done
+// reset password,  done

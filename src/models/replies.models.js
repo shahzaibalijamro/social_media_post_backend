@@ -7,6 +7,10 @@ const replySchema = new mongoose.Schema(
             ref: "Comment",
             required: [true, "Comment is required!"],
         },
+        reply: {
+            type: String,
+            required: [true, "Reply text is required!"]
+        },
         replier: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
