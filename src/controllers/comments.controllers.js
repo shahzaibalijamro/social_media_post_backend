@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+import Comment from "../models/comments.models.js";
 //add comment
 const addComment = async (req, res) => {
     let session;
@@ -69,3 +71,47 @@ const deleteComment = async (req,res) => {
         })
     }
 }
+
+const editComment = async (req,res) => {
+    const {commentText,commentId,userId} = req.body;
+    try {
+        if (!commentText || commentText.trim() === "") {
+            return res.status(400).json({
+                message: "Comment text cannot be empty!"
+            });
+        }
+        if (!commentId || !mongoose.Types.ObjectId.isValid(commentId)) {
+            return res.status(400).json({
+                message: "Comment Id is required and must be valid!"
+            })
+        }
+        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({
+                message: "User Id is required and must be valid!"
+            })
+        }
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({
+                message: "Comment does not exist!"
+            })
+        }
+        if (comment.commenter.toString() !== userId.toString()) {
+            return res.status(403).json({
+                message: "You are not authorized to edit this comment."
+            })
+        }
+        comment.comment = commentText;
+        await comment.save();
+        return res.status(200).json({
+            message: "Comment updated!"
+        })
+    } catch (error) {
+        console.log(error.message || error);
+        return res.status(500).json({
+            message: "Something went wrong while editing the comment!"
+        })
+    }
+}
+
+export {addComment,editComment,deleteComment}

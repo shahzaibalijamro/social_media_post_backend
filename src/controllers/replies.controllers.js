@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+import Reply from "../models/replies.models.js";
 const replyToAComment = async (req, res) => {
     const { reply, comment, replier } = req.body;
     if (!reply) {
