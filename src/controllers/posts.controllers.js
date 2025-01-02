@@ -147,6 +147,11 @@ const getUserSharedPosts = async(req,res) => {
                 message: "User Id is required and must be valid!"
             })
         }
+        const user = await User.findById(userId).populate({
+            path: 'sharedPosts',
+            select: '-password -likedPosts -posts -reposts',
+            populate: 'post'
+        })
         const findSharedPosts = await Share.find({sharer: userId}).populate("post");
         if(!findSharedPosts || findSharedPosts.length === 0){
             return res.status(404).json({
