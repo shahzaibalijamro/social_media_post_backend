@@ -31,6 +31,14 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, "Profile picture is required!"]
     },
+    followers: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    }],
+    following: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    }],
     likedPosts: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "Like"

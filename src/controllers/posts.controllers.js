@@ -116,15 +116,15 @@ const allPosts = async (req, res) => {
 
 //single user posts
 const getUserPosts = async (req, res) => {
-    const {userId} = req.body;
+    const { userId } = req.body;
     try {
         if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({
                 message: "User Id is required and must be valid!"
             })
         }
-        const allPosts = await Post.find({poster: userId})
-        if(!allPosts || allPosts.length === 0){
+        const allPosts = await Post.find({ poster: userId })
+        if (!allPosts || allPosts.length === 0) {
             return res.status(404).json({
                 message: "No posts found for this user."
             })
@@ -139,8 +139,8 @@ const getUserPosts = async (req, res) => {
 }
 
 //all shared posts
-const getUserSharedPosts = async(req,res) => {
-    const {userId} = req.body;
+const getUserSharedPosts = async (req, res) => {
+    const { userId } = req.body;
     try {
         if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({
@@ -152,27 +152,26 @@ const getUserSharedPosts = async(req,res) => {
             select: '-password -likedPosts -posts -reposts',
             populate: 'post'
         })
-        const findSharedPosts = await Share.find({sharer: userId}).populate("post");
-        if(!findSharedPosts || findSharedPosts.length === 0){
+        if (!user || !user.sharedPosts || user.sharedPosts.length === 0) {
             return res.status(404).json({
                 message: "No shared posts found for this user."
             })
         }
-        const sharedPosts = findSharedPosts.map(item => ({
+        const sharedPosts = user.sharedPosts.map(item => ({
             post: item.post,
-            shareTimeStamp:{
+            shareTimeStamp: {
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
-            },
-            sharer: {
-                _id: item.sharer._id,
-                userName: item.sharer.userName,
-                fullName: item.sharer.fullName,
-                email: item.sharer.email,
-                profilePicture: item.sharer.profilePicture,
             }
         }))
-        res.json(sharedPosts)
+        const sharer = {
+            userName: user.userName,
+            fullName: user.fullName,
+            email: user.email,
+            profilePicture: user.profilePicture,
+            _id: user._id
+        }
+        res.json({sharer,sharedPosts})
     } catch (error) {
         console.log(error.message || error);
         res.status(500).json({
@@ -181,29 +180,41 @@ const getUserSharedPosts = async(req,res) => {
     }
 }
 
-//all shared posts
-const getUserReposts = async(req,res) => {
-    const {userId} = req.body;
+//all reposts
+const getUserReposts = async (req, res) => {
+    const { userId } = req.body;
     try {
         if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({
                 message: "User Id is required and must be valid!"
             })
         }
-        const findSharedPosts = await Share.find({sharer: userId}).populate("post");
-        if(!findSharedPosts || findSharedPosts.length === 0){
+        const user = await User.findById(userId).populate({
+            path: 'reposts',
+            select: '-password -likedPosts -posts -sharedPosts',
+            populate: 'post'
+        })
+        if (!user || !user.reposts || user.reposts.length === 0) {
             return res.status(404).json({
-                message: "No shared posts found for this user."
+                message: "No reposts found for this user."
             })
         }
-        const sharedPosts = findSharedPosts.map(item => ({
+        const reposts = user.reposts.map(item => ({
             post: item.post,
-            shareTimeStamp:{
+            addedComments: item.editedVal,
+            repostTime: {
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
             }
         }))
-        res.json(sharedPosts)
+        const reposter = {
+            userName: user.userName,
+            fullName: user.fullName,
+            email: user.email,
+            profilePicture: user.profilePicture,
+            _id: user._id
+        }
+        res.json({reposter,reposts})
     } catch (error) {
         console.log(error.message || error);
         res.status(500).json({
@@ -518,9 +529,9 @@ const toggleRepost = async (req, res) => {
     }
 }
 
-export { addPost, deletePost, allPosts, likeOrUnlikePost, shareOrUnSharePost, toggleRepost, editPost,getUserPosts,getUserSharedPosts }
+export { addPost, deletePost, allPosts, likeOrUnlikePost, shareOrUnSharePost, toggleRepost, editPost, getUserPosts, getUserSharedPosts,getUserReposts }
 
-// // // // // all reposts,
+// all reposts, done
 // all shared posts, done
 // edit comment, done
 // delete user, done

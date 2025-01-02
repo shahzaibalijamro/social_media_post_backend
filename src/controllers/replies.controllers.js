@@ -88,3 +88,5 @@ const deleteReply = async (req,res) =>{
         })
     }
 }
+
+export {replyToAComment,deleteReply}

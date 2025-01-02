@@ -1,51 +1,25 @@
 import mongoose from "mongoose";
-import User from "../models/users.models.js"
+import User from "../models/users.models.js";
+import Blog from "../models/blogs.models.js"
 import jwt from "jsonwebtoken"
 import bcrypt from "bcrypt"
 import { uploadImageToCloudinary } from "../utils/cloudinary.utils.js";
-// generates tokens
-const generateAccessandRefreshTokens = function (user) {
-    const accessToken = jwt.sign({ _id: user._id, email: user.email }, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "1h",
-    });
-    const refreshToken = jwt.sign({ email: user.email, userName: user.userName, _id: user._id, }, process.env.REFRESH_TOKEN_SECRET, {
-        expiresIn: "10d",
-    });
-    return { accessToken, refreshToken }
-}
-
-
+import { generateAccessandRefreshTokens } from "../utils/tokens.utils.js";
 
 // registers User
 const registerUser = async (req, res) => {
-
-    //getting data
     const { userName, fullName, email, password } = req.body;
     if (!req.file) return res.status(400).json({
         message: "No file found"
     })
     const image = req.file.path;
     try {
-
-        //uploading image to cloudinary and expecting the url in return
         const profilePicture = await uploadImageToCloudinary(image)
-
-        //creating data instance
         const user = new User({ userName, fullName, email, password, profilePicture })
-
-        //generating and adding the tokens midway through
         const { accessToken, refreshToken } = generateAccessandRefreshTokens(user)
-
-        //saving the data
         await user.save();
-
-        //sending response if user successfully created
         res
-
-            //Adding cookies
             .cookie("refreshToken", refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 })
-
-            //status code with json response
             .status(201).json({
                 message: "New user created",
                 newUser: {
@@ -60,21 +34,80 @@ const registerUser = async (req, res) => {
                 }
             })
     } catch (error) {
-        //error checking
+        console.log(error.message);
+        if (error.message === "Password does not meet the required criteria") {
+            return res.status(400).json({ message: "Password does not meet the required criteria!" });
+        }
         if (error.code === 11000) {
             return res.status(400).json({ message: "userName or email already exists." });
         }
         if (error.name === 'ValidationError') {
             return res.status(400).json({ message: error.message });
         }
-        console.log(error.message);
-        if (error.message === "Password does not meet the required criteria") {
-            return res.status(400).json({ message: "Your password must be at least 8 characters long, contain at least one letter, one number, and one special character (e.g., @$!%*?&)." });
-        }
         res.status(500).json({ message: 'Server error' });
     }
 }
 
+const followUser = async (req, res) => {
+    const { currentUserId, targetUserId } = req.body;
+    let session;
+    try {
+        if (!currentUserId || !mongoose.Types.ObjectId.isValid(currentUserId)) {
+            return res.status(400).json({
+                message: "User Id is required and must be valid!"
+            })
+        }
+        if (!targetUserId || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+            return res.status(400).json({
+                message: "Targeted User Id is required and must be valid!"
+            })
+        };
+        session = await mongoose.startSession();
+        session.startTransaction();
+        const [currentUser, targetUser] = await Promise.all([
+            User.findById(currentUserId, { session }),
+            User.findById(targetUserId, { session })
+        ]);
+        if (!currentUser || !targetUser) {
+            await session.abortTransaction()
+            return res.status(404).json({
+                message: "One or both users not found!"
+            })
+        }
+        if (currentUser.following.includes(targetUserId) || targetUser.followers.includes(currentUserId)) {
+            const filterFollowing = currentUser.following.filter((item) => item.toString() !== targetUserId.toString());
+            const filterFollowers = targetUser.followers.filter((item) => item.toString() !== currentUserId.toString());
+            currentUser.following = filterFollowing;
+            targetUser.followers = filterFollowers;
+            await Promise.all([
+                currentUser.save({ session }),
+                targetUser.save({ session })
+            ]);
+            await session.commitTransaction()
+            res.status(200).json({
+                message: "Unfollowed successfully!"
+            })
+        }
+        currentUser.following.push(targetUserId)
+        targetUser.followers.push(currentUserId)
+        await Promise.all([
+            currentUser.save({ session }),
+            targetUser.save({ session })
+        ]);
+        await session.commitTransaction()
+        res.status(200).json({
+            message: "Followed successfully!"
+        })
+    } catch (error) {
+        console.log(error);
+        if (session) await session.abortTransaction();
+        res.status(500).json({
+            message: "Something went wrong while following!"
+        })
+    } finally {
+        if (session) await session.endSession()
+    }
+}
 
 const loginUser = async function (req, res) {
     const { userNameOrEmail, password } = req.body;
@@ -115,31 +148,136 @@ const loginUser = async function (req, res) {
     }
 }
 
-
-const logoutUser = async (req, res) => {
+const updateFullNameOrUserName = async (req, res) => {
+    const { userName, fullName } = req.body;
+    const decoded = req.user;
+    const accessToken = req.tokens?.accessToken;
     try {
-        const { refreshToken } = req.cookies;
-        if (!refreshToken) return res.status(401).json({ message: "No refresh token provided" });
-        const checkToken = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET)
-        if (!checkToken) return res.status(401).json({
-            message: "Invalid or expired token. Please log in again."
-        })
-        const user = await User.findOneAndUpdate({ email: checkToken.email }, { $set: { refreshToken: '' } }, { new: true })
-        if (!user) return res.status(401).json({
-            message: "User does not exist"
-        })
-        res.clearCookie("refreshToken", { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 0, sameSite: 'strict', });
-        res.status(200).json({
-            message: "User logged out successfully"
+        if (!userName || !fullName) {
+            return res.status(400).json({
+                message: "Username and fullname are required!"
+            })
+        }
+        const user = await User.findById(
+            decoded._id || decoded.id).select('-password -publishedBlogs');
+        if (!user) {
+            return res.status(404).json({
+                message: "User does not exist!"
+            })
+        }
+        const lowerCaseUserName = userName.toLowerCase()
+        if (user.userName !== lowerCaseUserName) {
+            const isUserNameTaken = await User.findOne({ userName: lowerCaseUserName });
+            if (isUserNameTaken) {
+                return res.status(400).json({
+                    message: "This username is already taken, try another one!",
+                    taken: true
+                })
+            }
+        }
+        if (user.fullName !== fullName || user.userName !== lowerCaseUserName) {
+            const update = await User.findByIdAndUpdate(
+                user._id,
+                {
+                    fullName,
+                    userName: lowerCaseUserName
+                },
+                { new: true }).select('-password -publishedBlogs');
+            return res.status(200).json({
+                message: "Username and fullname updated!",
+                user: update,
+                ...(accessToken && { accessToken })
+            })
+        }
+        return res.status(200).json({
+            message: "Username and fullname are already up-to-date!",
+            user,
+            ...(accessToken && { accessToken })
         })
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Something went wrong. Please try again later." });
+        console.log(error.message || error);
+        res.status(500).json({
+            message: "Something went wrong!"
+        })
     }
 }
 
+const resetPassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body.data;
+        const decoded = req.user;
+        const accessToken = req.tokens?.accessToken;
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                message: "Insufficient data recieved!"
+            })
+        }
+        const user = await User.findOne({ email: decoded.email })
+        if (!user) return res.status(404).json({
+            message: "User does not exist!"
+        })
+        const checkPassword = await bcrypt.compare(currentPassword, user.password);
+        if (!checkPassword) return res.status(400).json({
+            isPasswordCorrect: false,
+            message: "Incorrect Password"
+        })
+        user.password = newPassword
+        await user.save()
+        res.status(200).json({
+            isPasswordCorrect: true,
+            message: "Password updated",
+            ...(accessToken && { accessToken })
+        })
+    } catch (error) {
+        console.log(error.message || error);
+        if (error.message === "Password does not meet the required criteria") {
+            return res.status(400).json({
+                message: "Password does not meet the required criteria!"
+            })
+        }
+        res.status(400).json({
+            message: "Something went wrong"
+        })
+    }
+}
 
-//delete user
+const updateProfilePicture = async (req, res) => {
+    const decoded = req.user;
+    const accessToken = req.tokens?.accessToken;
+    if (!req.file) return res.status(400).json({
+        message: "No file found"
+    })
+    if (!decoded) return res.status(400).json({
+        message: "No token found!"
+    })
+    const image = req.file.path;
+    try {
+        const doesUserExist = await User.findById(decoded._id || decoded.id);
+        if (!doesUserExist) {
+            res.status(404).json({
+                message: "User does not exist!"
+            })
+        }
+        const url = await uploadImageToCloudinary(image);
+        if (!url) {
+            return res.status(500).json({
+                message: "Could not upload the image!"
+            })
+        }
+        const updated = await User.findByIdAndUpdate(doesUserExist._id, { profilePicture: url }, { new: true }).select('-password -publishedBlogs')
+        res.status(200).json({
+            message: "Profile Picture updated!",
+            user: updated,
+            ...(accessToken && { accessToken })
+        })
+    } catch (error) {
+        console.log(error, "==> this");
+        return res.status(500).json({
+            message: "Something went wrong!"
+        })
+    }
+}
+
 const deleteUser = async (req, res) => {
     const { refreshToken } = req.cookies;
     let session;
@@ -150,162 +288,36 @@ const deleteUser = async (req, res) => {
         const decodedToken = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
         session = await mongoose.startSession();
         session.startTransaction();
-        const [deleteUser,deleteUserBlogs] = await Promise.all([
-            User.findByIdAndDelete(decodedToken._id,{session}),
-            Blog.deleteMany({author: decodedToken._id},{session})
+        const [deleteUser, deleteUserBlogs] = await Promise.all([
+            User.findByIdAndDelete(decodedToken._id, { session }),
+            Blog.deleteMany({ author: decodedToken._id }, { session })
         ])
-        if (!deleteUser) {
+        if (!deleteUser || !deleteUserBlogs) {
             await session.abortTransaction();
             return res.status(404).json({
                 message: "User not found"
             })
         }
         await session.commitTransaction();
-        res.clearCookie("refreshToken", { 
-            httpOnly: true, 
-            secure: process.env.NODE_ENV === 'production', 
-            maxAge: 0, 
+        res.clearCookie("refreshToken", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 0,
             sameSite: 'strict',
             path: '/',
         });
         return res.status(200).json({ message: "User deleted!" });
     } catch (error) {
-        if(session) await session.abortTransaction()
+        if (session) await session.abortTransaction()
         if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
             return res.status(401).json({ message: "Invalid or expired token" });
         }
         console.log(error);
         return res.status(500).json({ message: "Error occurred while deleting the user" });
-    }finally{
-        if(session) await session.endSession()
+    } finally {
+        if (session) await session.endSession()
     }
 };
 
 
-//update user data
-
-const updateUserData = async (req, res) => {
-    console.log(req.cookies);
-    const { refreshToken } = req.cookies;
-    var decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-    console.log(decoded);
-    res.send("done")
-    // const { 
-    // userName,
-    // fullName,
-    // profilePicture } = req.body;
-
-
-}
-
-
-//send user data upon reload
-
-const refreshUser = async (req, res) => {
-    try {
-        const currentRefreshToken = req.cookies.refreshToken;
-        if (!currentRefreshToken) {
-            return res.status(401).json({ message: "Please login again!" });
-        }
-        // Decode and verify the token
-        const decoded = jwt.verify(currentRefreshToken, process.env.REFRESH_TOKEN_SECRET);
-        const decodedId = decoded._id;
-        const user = await User.findById(decodedId).select('-password -publishedBlogs -refreshToken');
-        if (!user) return res.status(400).json({
-            message: "User not found"
-        })
-        const { accessToken, refreshToken } = generateAccessandRefreshTokens(user)
-        res
-            .cookie("refreshToken", refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 })
-            .status(200)
-            .json({
-                message: "Token verified successfully!",
-                accessToken,
-                user
-            })
-    } catch (error) {
-        if (error.name === 'TokenExpiredError') {
-            return res.status(401).json({ message: "Refresh token has expired. Please login again!" });
-        }
-
-        if (error.name === 'JsonWebTokenError') {
-            return res.status(401).json({ message: "Invalid refresh token. Please login again!" });
-        }
-
-        console.error(error);
-        res.status(500).json({ message: "Internal server error!" });
-    }
-};
-
-const checkTokenExpiration = async (req, res) => {
-    console.log("hit");
-
-    const accessToken = req.body.token.token;
-    if (!accessToken) {
-        console.log("No accessToken found");
-
-        return res.status(400).json({
-            message: 'Token not provided',
-            isValid: false,
-        });
-    }
-    try {
-        const decoded = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
-        console.log("valid");
-
-        res.status(200).json({
-            isValid: true
-        })
-    } catch (error) {
-        console.log("Invalid accessToken found");
-
-        return res.status(400).json({
-            isValid: false
-        })
-    }
-}
-
-
-const resetPassword = async (req, res) => {
-    try {
-        const { currentPassword, newPassword } = req.body.data;
-        const authHeader = req.headers['authorization'];
-        if (!currentPassword || !newPassword) {
-            return res.status(400).json({
-                message: "Insufficient data recieved!"
-            })
-        }
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ message: 'Authorization header missing or invalid' });
-        }
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
-        if (!decoded) return res.status(400).json({
-            message: "Invalid Access Token"
-        })
-        console.log(decoded);
-        const user = await User.findOne({ email: decoded.email })
-        if (!user) return res.status(400).json({
-            message: "User does not exist!"
-        })
-        const checkPassword = await bcrypt.compare(currentPassword,user.password);
-        if (!checkPassword) return res.status(400).json({
-            isPasswordCorrect: false,
-            message: "Incorrect Password"
-        })
-        user.password = newPassword
-        await user.save()
-        res.status(200).json({
-            isPasswordCorrect: true,
-            message: "Password updated"
-        })
-    } catch (error) {
-        console.log(error);
-        return res.status(400).json({
-            message: "Something went wrong!",
-            error: error.message || error
-        })
-    }
-}
-
-export { registerUser, loginUser, logoutUser, updateUserData, refreshUser, checkTokenExpiration, resetPassword }
+export { registerUser, loginUser, updateFullNameOrUserName, resetPassword, updateProfilePicture, deleteUser }
